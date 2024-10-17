@@ -2,7 +2,9 @@ package com.example.registerapp
 
 import android.app.Activity
 import android.content.ContentValues.TAG
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
@@ -18,6 +20,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.FirebaseStorage
@@ -26,31 +29,19 @@ import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
+    private val db = Firebase.firestore
     private lateinit var imageView: ImageView
     private var imageURL: String = ""
+    private lateinit var imageUri2: Uri
+    private var imagePicked = false
     private val getContent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if(it.resultCode == Activity.RESULT_OK)
         {
             val data: Intent? = it.data
             val imageUri = data?.data
+            imageUri2 = imageUri!!
             imageView.setImageURI(imageUri)
-
-            val storageReference = FirebaseStorage.getInstance().reference
-            val imageRef = storageReference.child("images/" + UUID.randomUUID().toString())
-            val uploadTask = imageRef.putFile(imageUri!!)
-
-            uploadTask.addOnSuccessListener { taskSnapshot ->
-                imageRef.downloadUrl.addOnSuccessListener { uri ->
-                    val downloadUrl = uri.toString()
-                    Log.d("MAIN", downloadUrl)
-                    imageURL = downloadUrl
-                }.addOnFailureListener {
-                    Log.d("MAIN", it.toString())
-                }
-            }.addOnFailureListener {
-                Log.d("MAIN", it.toString())
-            }
-
+            imagePicked = true
         }
     }
 
@@ -63,20 +54,14 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
-        val intentHome = Intent(this, HomeActivity::class.java)
+
         auth = Firebase.auth
 
-        val currentUser = auth.currentUser
-        if (currentUser != null) {
-            startActivity(intentHome)
-            finish()
-        }
         val emailEdit: EditText = findViewById(R.id.register_email_editText)
         val passwordEdit: EditText = findViewById(R.id.register_password_editText)
         val registerButton: Button = findViewById(R.id.register_button)
         val goToLogin: TextView = findViewById(R.id.goToLogin_textView)
         imageView = findViewById(R.id.imageView)
-        val db = Firebase.firestore
 
         Picasso.get().load("https://i.imgur.com/DvpvklR.png").into(imageView)
 
@@ -91,7 +76,7 @@ class MainActivity : AppCompatActivity() {
             finish()
         }
         registerButton.setOnClickListener {
-            if (imageURL.isEmpty() || emailEdit.text.isEmpty() || passwordEdit.text.isEmpty()) {
+            if (emailEdit.text.isEmpty() || passwordEdit.text.isEmpty()) {
                 return@setOnClickListener
             }
 
@@ -104,19 +89,7 @@ class MainActivity : AppCompatActivity() {
                             "Hello " + user?.email.toString(),
                             Toast.LENGTH_SHORT,
                         ).show()
-
-                        val newUser = hashMapOf(
-                            "email" to emailEdit.text.toString(),
-                            "avatar" to imageURL
-                        )
-
-                        db.collection("users").document(user!!.uid)
-                            .set(newUser)
-                            .addOnSuccessListener { Log.d(TAG, "DocumentSnapshot successfully written!") }
-                            .addOnFailureListener { e -> Log.w(TAG, "Error writing document", e) }
-
-                        startActivity(intentHome)
-                        finish()
+                        createUserInDB(this, user)
                     } else {
                         Toast.makeText(
                             baseContext,
@@ -125,6 +98,53 @@ class MainActivity : AppCompatActivity() {
                         ).show()
                     }
                 }
+        }
+    }
+
+    private fun createUserInDB(context: Context, user: FirebaseUser?) {
+        if (!imagePicked) {
+            imageURL = "https://i.imgur.com/DvpvklR.png"
+            saveUserToFirestore(context, user)
+        } else {
+            val storageReference = FirebaseStorage.getInstance().reference
+            val imageRef = storageReference.child("images/" + UUID.randomUUID().toString())
+
+            imageRef.putFile(imageUri2)
+                .addOnSuccessListener {
+                    imageRef.downloadUrl.addOnSuccessListener { uri ->
+                        imageURL = uri.toString()
+                        saveUserToFirestore(context, user)
+                    }.addOnFailureListener {
+                        Log.d("MAIN", it.toString())
+                    }
+                }.addOnFailureListener {
+                    Log.d("MAIN", it.toString())
+                }
+        }
+    }
+
+    private fun saveUserToFirestore(context: Context, user: FirebaseUser?) {
+        val newUser = hashMapOf(
+            "email" to user?.email.toString(),
+            "avatar" to imageURL
+        )
+        db.collection("users").document(user!!.uid)
+            .set(newUser)
+            .addOnSuccessListener {
+                val intentRegister = Intent(context, HomeActivity::class.java)
+                startActivity(intentRegister)
+                finish()
+            }
+            .addOnFailureListener { e -> Log.w(TAG, "Error writing document", e) }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val currentUser = Firebase.auth.currentUser
+        if (currentUser != null) {
+            val intentHome = Intent(this, HomeActivity::class.java)
+            startActivity(intentHome)
+            finish()
         }
     }
 }

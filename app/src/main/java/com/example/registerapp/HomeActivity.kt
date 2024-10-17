@@ -57,4 +57,14 @@ class HomeActivity : AppCompatActivity() {
             finish()
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            val intentRegister = Intent(this, MainActivity::class.java)
+            startActivity(intentRegister)
+            finish()
+        }
+    }
 }
